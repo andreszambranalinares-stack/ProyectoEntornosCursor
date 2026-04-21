@@ -108,10 +108,14 @@ function procesarSocios() {
         const headers = lines[0].split(",");
         getEmailColumnIndex(headers);
 
-        // 5) Parsear cada línea en partes y tomar el email como partes[1]
-        for (const linea of lines.slice(0)) {
+        // Reiniciar arrays globales en cada ejecución
+        emailsValidos = [];
+        emailsInvalidos = [];
+
+        // 5) Parsear cada línea y tomar el email como primera columna de datos
+        for (const linea of lines.slice(1)) {
           const partes = linea.split(",");
-          const emailOriginal = (partes[1] ?? "").replace("\r", "");
+          const emailOriginal = (partes[0] ?? "").replace("\r", "");
           const emailLimpio = emailOriginal.trim();
 
           // Si había espacios al inicio/fin, ya se considera inválido (no espacios).
@@ -124,6 +128,10 @@ function procesarSocios() {
             emailsInvalidos.push(emailOriginal);
           }
         }
+
+        // 6) Exportar archivos CSV de salida cuando el procesamiento ya terminó
+        fs.writeFileSync(validOutputFile, buildCsv(emailsValidos), "utf8");
+        fs.writeFileSync(invalidOutputFile, buildCsv(emailsInvalidos), "utf8");
 
         // 7) Mostrar resumen final por consola
         const total = emailsValidos.length + emailsInvalidos.length;
@@ -141,9 +149,6 @@ function procesarSocios() {
       }
     });
 
-    // 6) Exportar archivos CSV de salida fuera del callback principal
-    fs.writeFileSync(validOutputFile, buildCsv(emailsValidos), "utf8");
-    fs.writeFileSync(invalidOutputFile, buildCsv(emailsInvalidos), "utf8");
   } catch (error) {
     // Manejo centralizado de errores de lectura/formato/escritura
     console.error("Error al procesar el CSV:", error.message);
