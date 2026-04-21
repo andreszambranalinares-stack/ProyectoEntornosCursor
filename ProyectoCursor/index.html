@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Validador de Socios - Ateneo</title>
+    <style>
+      :root {
+        --bg: #eef2ff;
+        --text: #0f172a;
+        --muted: #475569;
+        --card: #ffffff;
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --secondary: #334155;
+        --secondary-hover: #1e293b;
+        --border: #e2e8f0;
+        --ok: #166534;
+        --ok-bg: #dcfce7;
+        --bad: #b91c1c;
+        --bad-bg: #fee2e2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Arial, sans-serif;
+        color: var(--text);
+        background: linear-gradient(140deg, #e0e7ff 0%, #f8fafc 65%, #ede9fe 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 28px 16px;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 900px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.5rem, 2.5vw, 2rem);
+      }
+
+      .small {
+        margin: 0 0 20px;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      code {
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      input[type="file"] {
+        flex: 1 1 320px;
+        border: 1px dashed #94a3b8;
+        border-radius: 10px;
+        padding: 10px;
+        color: #1e293b;
+        background: #f8fafc;
+      }
+
+      button {
+        cursor: pointer;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 14px;
+        color: #ffffff;
+        font-weight: 600;
+        transition: transform 0.1s ease, background-color 0.2s ease;
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      #validateBtn {
+        background: var(--primary);
+      }
+
+      #validateBtn:hover:not(:disabled) {
+        background: var(--primary-hover);
+      }
+
+      .secondary {
+        background: var(--secondary);
+      }
+
+      .secondary:hover:not(:disabled) {
+        background: var(--secondary-hover);
+      }
+
+      .results {
+        margin-top: 16px;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        background: #f8fafc;
+      }
+
+      .metric .label {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .metric .value {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-top: 4px;
+      }
+
+      .status {
+        margin-top: 14px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-weight: 600;
+      }
+
+      .status.ok {
+        color: var(--ok);
+        background: var(--ok-bg);
+      }
+
+      .status.bad {
+        color: var(--bad);
+        background: var(--bad-bg);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <h1>Validador de emails de socios</h1>
+        <p class="small">
+          Carga un archivo <code>socios.csv</code>, valida la columna
+          <code>email</code> y descarga <code>emails_validos.csv</code> y
+          <code>emails_invalidos.csv</code>.
+        </p>
+
+        <div class="controls">
+          <input id="csvFile" type="file" accept=".csv,text/csv" />
+          <button id="validateBtn">Validar CSV</button>
+          <button id="downloadValidBtn" class="secondary" disabled>
+            Descargar válidos
+          </button>
+          <button id="downloadInvalidBtn" class="secondary" disabled>
+            Descargar inválidos
+          </button>
+        </div>
+
+        <div id="results" class="results"></div>
+      </div>
+    </div>
+
+    <script>
+      // Expresión regular robusta para validar emails:
+      // - usuario@dominio.extension
+      // - sin espacios
+      // - dominio con al menos un punto
+      // - extensión entre 2 y 6 letras
+      const emailRegex = /^(?!.*\s)[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,6}$/;
+
+      const fileInput = document.getElementById("csvFile");
+      const validateBtn = document.getElementById("validateBtn");
+      const downloadValidBtn = document.getElementById("downloadValidBtn");
+      const downloadInvalidBtn = document.getElementById("downloadInvalidBtn");
+      const resultsEl = document.getElementById("results");
+
+      let validEmails = [];
+      let invalidEmails = [];
+
+      // Escapa campos para CSV cuando incluyen comas/comillas/saltos de línea
+      function csvEscape(value) {
+        const text = String(value ?? "");
+        if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+          return `"${text.replace(/"/g, '""')}"`;
+        }
+        return text;
+      }
+
+      // Construye el contenido CSV con cabecera "email"
+      function buildCsv(emails) {
+        const lines = ["email", ...emails.map((e) => csvEscape(e))];
+        return `${lines.join("\n")}\n`;
+      }
+
+      // Descarga texto como archivo CSV en el navegador
+      function downloadCsv(filename, content) {
+        const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      function showError(message) {
+        resultsEl.innerHTML = `<div class="status bad">Error: ${message}</div>`;
+      }
+
+      // Proceso principal: lectura, validación y clasificación
+      validateBtn.addEventListener("click", async () => {
+        try {
+          const file = fileInput.files[0];
+          if (!file) {
+            showError("Debes seleccionar un archivo CSV.");
+            return;
+          }
+
+          const text = await file.text();
+          if (!text.trim()) {
+            throw new Error("El CSV está vacío.");
+          }
+
+          const lines = text
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0);
+
+          if (lines.length < 2) {
+            throw new Error(
+              "CSV mal formateado: debe tener cabecera y al menos una fila."
+            );
+          }
+
+          const headers = lines[0].split(",");
+          const emailIndex = headers.findIndex(
+            (h) => h.trim().toLowerCase() === "email"
+          );
+
+          if (emailIndex === -1) {
+            throw new Error(
+              "CSV mal formateado: no se encontró la columna 'email'."
+            );
+          }
+
+          validEmails = [];
+          invalidEmails = [];
+
+          for (let i = 1; i < lines.length; i += 1) {
+            const cols = lines[i].split(",");
+            if (cols.length <= emailIndex) {
+              throw new Error(
+                `CSV mal formateado en la línea ${i + 1}: falta la columna email.`
+              );
+            }
+
+            const original = cols[emailIndex];
+            const trimmed = original.trim();
+            const hasOuterSpaces = original !== trimmed;
+            const isValid = !hasOuterSpaces && emailRegex.test(trimmed);
+
+            if (isValid) {
+              validEmails.push(trimmed);
+            } else {
+              invalidEmails.push(original);
+            }
+          }
+
+          const total = validEmails.length + invalidEmails.length;
+          resultsEl.innerHTML = `
+            <div class="summary-grid">
+              <article class="metric">
+                <div class="label">Total procesados</div>
+                <div class="value">${total}</div>
+              </article>
+              <article class="metric">
+                <div class="label">Válidos</div>
+                <div class="value">${validEmails.length}</div>
+              </article>
+              <article class="metric">
+                <div class="label">Inválidos</div>
+                <div class="value">${invalidEmails.length}</div>
+              </article>
+            </div>
+            <div class="status ok">Validación completada correctamente.</div>
+          `;
+
+          downloadValidBtn.disabled = false;
+          downloadInvalidBtn.disabled = false;
+        } catch (error) {
+          validEmails = [];
+          invalidEmails = [];
+          downloadValidBtn.disabled = true;
+          downloadInvalidBtn.disabled = true;
+          showError(error.message);
+        }
+      });
+
+      // Botón de descarga de emails válidos
+      downloadValidBtn.addEventListener("click", () => {
+        downloadCsv("emails_validos.csv", buildCsv(validEmails));
+      });
+
+      // Botón de descarga de emails inválidos
+      downloadInvalidBtn.addEventListener("click", () => {
+        downloadCsv("emails_invalidos.csv", buildCsv(invalidEmails));
+      });
+    </script>
+  </body>
+</html>
