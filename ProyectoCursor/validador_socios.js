@@ -19,6 +19,10 @@ const inputFile = path.join(__dirname, "socios.csv");
 const validOutputFile = path.join(__dirname, "emails_validos.csv");
 const invalidOutputFile = path.join(__dirname, "emails_invalidos.csv");
 
+// Arrays globales para resultados (según requisito solicitado)
+var emailsValidos = [];
+var emailsInvalidos = [];
+
 // -------------------------------------------------------------
 // Expresión regular robusta para validar emails
 // Reglas que cubre:
@@ -77,69 +81,69 @@ function procesarSocios() {
       throw new Error(`No existe el archivo de entrada: ${inputFile}`);
     }
 
-    // 2) Leer contenido completo del CSV
-    const rawData = fs.readFileSync(inputFile, "utf8");
-    if (!rawData.trim()) {
-      throw new Error("El archivo CSV está vacío.");
-    }
+    // 2) Leer contenido del CSV de forma asíncrona para no bloquear el hilo principal
+    fs.readFile(inputFile, "utf8", (readError, rawData) => {
+      try {
+        if (readError) {
+          throw readError;
+        }
 
-    // 3) Dividir por líneas y limpiar líneas vacías accidentales
-    const lines = rawData
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+        if (!rawData.trim()) {
+          throw new Error("El archivo CSV está vacío.");
+        }
 
-    if (lines.length < 2) {
-      throw new Error(
-        "CSV mal formateado: debe contener cabecera y al menos una fila de datos."
-      );
-    }
+        // 3) Dividir por líneas usando split('\n')
+        const lines = rawData
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
 
-    // 4) Detectar índice de la columna "email"
-    const headers = lines[0].split(",");
-    const emailIndex = getEmailColumnIndex(headers);
+        if (lines.length < 2) {
+          throw new Error(
+            "CSV mal formateado: debe contener cabecera y al menos una fila de datos."
+          );
+        }
 
-    // 5) Validar cada email y separarlo en arrays
-    const emailsValidos = [];
-    const emailsInvalidos = [];
+        // 4) Detectar índice de la columna "email"
+        const headers = lines[0].split(",");
+        getEmailColumnIndex(headers);
 
-    for (let i = 1; i < lines.length; i += 1) {
-      const cols = lines[i].split(",");
+        // 5) Parsear cada línea en partes y tomar el email como partes[1]
+        for (const linea of lines.slice(0)) {
+          const partes = linea.split(",");
+          const emailOriginal = (partes[1] ?? "").replace("\r", "");
+          const emailLimpio = emailOriginal.trim();
 
-      // Si la fila no tiene suficientes columnas, se considera mal formateada.
-      if (cols.length <= emailIndex) {
-        throw new Error(
-          `CSV mal formateado en la línea ${i + 1}: falta la columna 'email'.`
-        );
+          // Si había espacios al inicio/fin, ya se considera inválido (no espacios).
+          const hasOuterSpaces = emailOriginal !== emailLimpio;
+          const isValid = !hasOuterSpaces && emailRegex.test(emailLimpio);
+
+          if (isValid) {
+            emailsValidos.push(emailLimpio);
+          } else {
+            emailsInvalidos.push(emailOriginal);
+          }
+        }
+
+        // 7) Mostrar resumen final por consola
+        const total = emailsValidos.length + emailsInvalidos.length;
+        console.log("Resumen de validación de emails");
+        console.log("--------------------------------");
+        console.log(`Total procesados: ${total}`);
+        console.log(`Válidos: ${emailsValidos.length}`);
+        console.log(`Inválidos: ${emailsInvalidos.length}`);
+        console.log(`Archivo generado: ${path.basename(validOutputFile)}`);
+        console.log(`Archivo generado: ${path.basename(invalidOutputFile)}`);
+      } catch (error) {
+        // Manejo centralizado de errores de lectura/formato/escritura
+        console.error("Error al procesar el CSV:", error.message);
+        process.exitCode = 1;
       }
+    });
 
-      const emailOriginal = cols[emailIndex];
-      const email = emailOriginal.trim();
-
-      // Si había espacios al inicio/fin, ya se considera inválido (no espacios).
-      const hasOuterSpaces = emailOriginal !== email;
-      const isValid = !hasOuterSpaces && emailRegex.test(email);
-
-      if (isValid) {
-        emailsValidos.push(email);
-      } else {
-        emailsInvalidos.push(emailOriginal);
-      }
-    }
-
-    // 6) Exportar archivos CSV de salida
+    // 6) Exportar archivos CSV de salida fuera del callback principal
     fs.writeFileSync(validOutputFile, buildCsv(emailsValidos), "utf8");
     fs.writeFileSync(invalidOutputFile, buildCsv(emailsInvalidos), "utf8");
-
-    // 7) Mostrar resumen final por consola
-    const total = emailsValidos.length + emailsInvalidos.length;
-    console.log("Resumen de validación de emails");
-    console.log("--------------------------------");
-    console.log(`Total procesados: ${total}`);
-    console.log(`Válidos: ${emailsValidos.length}`);
-    console.log(`Inválidos: ${emailsInvalidos.length}`);
-    console.log(`Archivo generado: ${path.basename(validOutputFile)}`);
-    console.log(`Archivo generado: ${path.basename(invalidOutputFile)}`);
   } catch (error) {
     // Manejo centralizado de errores de lectura/formato/escritura
     console.error("Error al procesar el CSV:", error.message);
